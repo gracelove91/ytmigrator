@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"ytmigrator/internal/state"
@@ -277,6 +278,10 @@ func (a *App) doImport(exportPath string) (string, error) {
 
 	if err := client.ImportAll(a.ctx, &bundle, prog); err != nil {
 		_ = state.SaveImportProgress(progressPath, prog)
+		if strings.Contains(err.Error(), "quotaExceeded") {
+			return fmt.Sprintf("quota exhausted at %d/%d subscriptions. progress saved — resume tomorrow",
+				len(prog.SubscriptionsCompleted), len(bundle.Subscriptions)), nil
+		}
 		return "", fmt.Errorf("import failed: %w", err)
 	}
 

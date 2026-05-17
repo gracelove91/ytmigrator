@@ -20,6 +20,11 @@ func (c *Client) ImportSubscriptions(ctx context.Context, bundle *ExportBundle, 
 		}
 		err := c.importSubscription(ctx, sub)
 		if err != nil {
+			if err.Error() == "quotaExceeded" {
+				log.Printf("  subscription %d/%d QUOTA EXCEEDED — stopping", i+1, len(bundle.Subscriptions))
+				prog.MarkSubscriptionDone(sub.ChannelId, false)
+				return err
+			}
 			log.Printf("  subscription %d/%d FAILED: %s - %v", i+1, len(bundle.Subscriptions), sub.Title, err)
 			prog.MarkSubscriptionDone(sub.ChannelId, false)
 		} else {
@@ -46,7 +51,6 @@ func (c *Client) importSubscription(ctx context.Context, sub Subscription) error
 			},
 		},
 	}
-	// Map notification level (ActivityType in v3 API)
 	if sub.NotificationLevel != "" {
 		item.ContentDetails = &youtube.SubscriptionContentDetails{
 			ActivityType: sub.NotificationLevel,
@@ -55,8 +59,17 @@ func (c *Client) importSubscription(ctx context.Context, sub Subscription) error
 
 	_, err := c.service.Subscriptions.Insert([]string{"snippet", "contentDetails"}, item).Context(ctx).Do()
 	if err != nil {
-		if apiErr, ok := err.(*googleapi.Error); ok && apiErr.Code == 409 {
-			return nil // already subscribed
+		if apiErr, ok := err.(*googleapi.Error); ok {
+			if apiErr.Code == 409 {
+				return nil // already subscribed
+			}
+			if apiErr.Code == 403 {
+				for _, detail := range apiErr.Errors {
+					if detail.Reason == "quotaExceeded" {
+						return fmt.Errorf("quotaExceeded")
+					}
+				}
+			}
 		}
 		return fmt.Errorf("subscribe to %s: %w", sub.ChannelId, err)
 	}
