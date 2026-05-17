@@ -15,6 +15,9 @@ import (
 func (c *Client) ImportSubscriptions(ctx context.Context, bundle *ExportBundle, prog *state.ImportProgress) error {
 	log.Printf("Importing %d subscriptions...", len(bundle.Subscriptions))
 	for i, sub := range bundle.Subscriptions {
+		if c.progressCallback != nil {
+			c.progressCallback("subscriptions", sub.Title, i+1, len(bundle.Subscriptions))
+		}
 		err := c.importSubscription(ctx, sub)
 		if err != nil {
 			log.Printf("  subscription %d/%d FAILED: %s - %v", i+1, len(bundle.Subscriptions), sub.Title, err)

@@ -260,6 +260,15 @@ func (a *App) doImport(exportPath string) (string, error) {
 		return "", fmt.Errorf("create youtube client: %w", err)
 	}
 
+	client.SetProgressCallback(func(category, item string, current, total int) {
+		runtime.EventsEmit(a.ctx, "import:progress", map[string]any{
+			"category": category,
+			"item":     item,
+			"current":  current,
+			"total":    total,
+		})
+	})
+
 	progressPath := filepath.Join(os.TempDir(), "ytmigrator_import_progress.json")
 	prog, err := state.LoadImportProgress(progressPath)
 	if err != nil {

@@ -12,7 +12,8 @@ import (
 
 // Client wraps the YouTube service with an authenticated HTTP client.
 type Client struct {
-	service *yt.Service
+	service            *yt.Service
+	progressCallback   ImportProgressCallback
 }
 
 // NewClient creates a new Client from an existing access token.
@@ -23,6 +24,11 @@ func NewClient(ctx context.Context, token *http.Client) (*Client, error) {
 		return nil, fmt.Errorf("create youtube service: %w", err)
 	}
 	return &Client{service: svc}, nil
+}
+
+// SetProgressCallback registers a callback for real-time progress updates.
+func (c *Client) SetProgressCallback(cb ImportProgressCallback) {
+	c.progressCallback = cb
 }
 
 // ExportSubscriptions returns all channel subscriptions of the authenticated user.

@@ -8,6 +8,9 @@ type Subscription struct {
 	NotificationLevel string `json:"notificationLevel"` // "all", "occasional", "none"
 }
 
+// ImportProgressCallback reports real-time progress to the caller.
+type ImportProgressCallback func(category, item string, current, total int)
+
 // PlaylistItem is a single video in a playlist.
 type PlaylistItem struct {
 	VideoID string `json:"videoId"`

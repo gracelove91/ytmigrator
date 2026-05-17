@@ -1,5 +1,5 @@
 import {useState, useEffect} from 'react';
-import {EventsOn, EventsOff} from "../wailsjs/runtime/runtime";
+import {EventsOn} from "../wailsjs/runtime/runtime";
 import {
     GetStoredCredentialsStatus,
     SelectCredentialsFile,
@@ -26,19 +26,21 @@ function App() {
 
     useEffect(() => {
         if (!importing) return;
-        const doneUnsub = EventsOn("import:done", (msg: string) => {
+        const offProgress = EventsOn("import:progress", (data: any) => {
+            setStatus(`Importing ${data.category}: ${data.item}  (${data.current} / ${data.total})`);
+        });
+        const offDone = EventsOn("import:done", (msg: string) => {
             setImporting(false);
             setStatus("Import done: " + msg);
         });
-        const errUnsub = EventsOn("import:error", (err: string) => {
+        const offErr = EventsOn("import:error", (err: string) => {
             setImporting(false);
             setStatus("Import error: " + err);
         });
         return () => {
-            EventsOff("import:done");
-            EventsOff("import:error");
-            doneUnsub();
-            errUnsub();
+            offProgress();
+            offDone();
+            offErr();
         };
     }, [importing]);
 
@@ -94,10 +96,10 @@ function App() {
             return;
         }
         setImporting(true);
-        setStatus("importing to target account... this may take a long time");
+        setStatus("starting import...");
         try {
             const msg = await ImportData(exportPath);
-            setStatus(msg); // "import started"
+            // msg == "import started" — real progress comes via events
         } catch (e: any) {
             setImporting(false);
             setStatus("import error: " + e);
@@ -115,8 +117,8 @@ function App() {
                 fontFamily: "monospace", fontSize: "14px",
                 color: "#d0d8e0", minHeight: "20px"
             }}>
+                {importing && <span style={{color: "#4fc3f7"}}>⏳ </span>}
                 {status}
-                {importing && <span className="spinner" style={{marginLeft: "10px"}}>...</span>}
             </div>
 
             {!hasCredentials && (
@@ -153,9 +155,9 @@ function App() {
             )}
 
             {importing && (
-                <div style={{marginTop: "10px", color: "#aab"}}>
-                    Import is running in the background...<br/>
-                    You can close this window; progress is saved automatically.
+                <div style={{marginTop: "10px", color: "#aab", fontSize: "13px"}}>
+                    Import running in background. Progress auto-saves.<br/>
+                    You may close the window and resume later.
                 </div>
             )}
         </div>
