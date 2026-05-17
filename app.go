@@ -127,6 +127,7 @@ func (a *App) authenticate(scope string) (*oauth2.Token, error) {
 		return nil, err
 	}
 
+	// Listen on both IPv4 and IPv6 localhost to avoid "connection refused"
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
@@ -134,7 +135,8 @@ func (a *App) authenticate(scope string) (*oauth2.Token, error) {
 	defer listener.Close()
 
 	port := listener.Addr().(*net.TCPAddr).Port
-	redirectURL := fmt.Sprintf("http://localhost:%d/callback", port)
+	// Use 127.0.0.1 explicitly in redirect URL to match listener address
+	redirectURL := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
 	cfg.RedirectURL = redirectURL
 
 	authURL := cfg.AuthCodeURL("state", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
@@ -144,18 +146,22 @@ func (a *App) authenticate(scope string) (*oauth2.Token, error) {
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
-	server := &http.Server{}
-	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+	// Use a dedicated mux per authentication to avoid global handler conflicts
+	mux := http.NewServeMux()
+	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
 		if code == "" {
 			errCh <- fmt.Errorf("no code in callback")
 			http.Error(w, "Authentication failed", http.StatusBadRequest)
 			return
 		}
-		fmt.Fprintf(w, "<h1>Success!</h1><p>You can close this window.</p>")
+		fmt.Fprintf(w, "<h1>ytmigrator</h1><p>Authentication successful! You can close this window.</p>")
 		codeCh <- code
-		server.Close()
 	})
+
+	server := &http.Server{
+		Handler: mux,
+	}
 
 	go func() {
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
@@ -165,6 +171,7 @@ func (a *App) authenticate(scope string) (*oauth2.Token, error) {
 
 	select {
 	case code := <-codeCh:
+		_ = server.Close()
 		tok, err := cfg.Exchange(a.ctx, code)
 		if err != nil {
 			return nil, fmt.Errorf("exchange token: %w", err)
