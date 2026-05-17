@@ -6,16 +6,24 @@ import {
     AuthenticateSource,
     AuthenticateTarget,
     ExportData,
-    ImportData
+    GetExportInfo,
+    ImportData,
 } from "../wailsjs/go/main/App";
+import {main} from "../wailsjs/go/models";
 
 function App() {
     const [hasCredentials, setHasCredentials] = useState(false);
     const [sourceAuthed, setSourceAuthed] = useState(false);
     const [targetAuthed, setTargetAuthed] = useState(false);
     const [exportPath, setExportPath] = useState<string | null>(null);
+    const [exportInfo, setExportInfo] = useState<any>(null);
     const [status, setStatus] = useState("initializing...");
     const [importing, setImporting] = useState(false);
+    const [importOptions, setImportOptions] = useState({
+        importSubscriptions: true,
+        importPlaylists: true,
+        importLikes: true,
+    });
 
     useEffect(() => {
         GetStoredCredentialsStatus().then(stored => {
@@ -84,7 +92,9 @@ function App() {
         try {
             const path = await ExportData();
             setExportPath(path);
-            setStatus("Export saved to: " + path);
+            const info = await GetExportInfo(path);
+            setExportInfo(info);
+            setStatus(`Export ready: ${info.subscriptionCount} subs, ${info.playlistCount} playlists, ${info.likedVideoCount} likes`);
         } catch (e: any) {
             setStatus("export error: " + e);
         }
@@ -97,14 +107,20 @@ function App() {
         }
         setImporting(true);
         setStatus("starting import...");
+        const opts = new main.ImportOptions({
+            importSubscriptions: importOptions.importSubscriptions,
+            importPlaylists: importOptions.importPlaylists,
+            importLikes: importOptions.importLikes,
+        });
         try {
-            const msg = await ImportData(exportPath);
-            // msg == "import started" — real progress comes via events
+            await ImportData(exportPath, opts);
         } catch (e: any) {
             setImporting(false);
             setStatus("import error: " + e);
         }
     }
+
+    const anySelected = importOptions.importSubscriptions || importOptions.importPlaylists || importOptions.importLikes;
 
     return (
         <div style={{padding: "40px", fontFamily: "system-ui, sans-serif"}}>
@@ -146,11 +162,47 @@ function App() {
                 </div>
             )}
 
-            {targetAuthed && exportPath && !importing && (
-                <div>
-                    <button onClick={doImport} style={btnStyle("#7b1fa2")}>
-                        Import Data to Target
-                    </button>
+            {exportInfo && (
+                <div style={{
+                    margin: "20px 0", padding: "15px",
+                    background: "#16202b", borderRadius: "8px",
+                    color: "#d0d8e0", textAlign: "left"
+                }}>
+                    <h3 style={{margin: "0 0 10px 0", color: "#fff"}}>Export Preview</h3>
+                    <div>📺 Subscriptions: {exportInfo.subscriptionCount}</div>
+                    <div>📁 Playlists: {exportInfo.playlistCount} ({exportInfo.videoCount} videos)</div>
+                    <div>❤️ Liked Videos: {exportInfo.likedVideoCount}</div>
+
+                    <h4 style={{margin: "15px 0 8px 0", color: "#aab"}}>Select items to import:</h4>
+                    <label style={{display: "block", margin: "5px 0", cursor: "pointer"}}>
+                        <input type="checkbox" checked={importOptions.importSubscriptions}
+                            onChange={(e) => setImportOptions({...importOptions, importSubscriptions: e.target.checked})}
+                            style={{marginRight: "8px"}} />
+                        Subscriptions ({exportInfo.subscriptionCount})
+                    </label>
+                    <label style={{display: "block", margin: "5px 0", cursor: "pointer"}}>
+                        <input type="checkbox" checked={importOptions.importPlaylists}
+                            onChange={(e) => setImportOptions({...importOptions, importPlaylists: e.target.checked})}
+                            style={{marginRight: "8px"}} />
+                        Playlists ({exportInfo.playlistCount})
+                    </label>
+                    <label style={{display: "block", margin: "5px 0", cursor: "pointer"}}>
+                        <input type="checkbox" checked={importOptions.importLikes}
+                            onChange={(e) => setImportOptions({...importOptions, importLikes: e.target.checked})}
+                            style={{marginRight: "8px"}} />
+                        Liked Videos ({exportInfo.likedVideoCount})
+                    </label>
+
+                    {targetAuthed && !importing && anySelected && (
+                        <button onClick={doImport} style={{...btnStyle("#7b1fa2"), marginTop: "15px"}}>
+                            Import Selected to Target
+                        </button>
+                    )}
+                    {!targetAuthed && (
+                        <div style={{marginTop: "10px", color: "#f4b400", fontSize: "13px"}}>
+                            Login target account to enable import
+                        </div>
+                    )}
                 </div>
             )}
 

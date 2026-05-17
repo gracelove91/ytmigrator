@@ -173,3 +173,23 @@ func (c *Client) ImportAll(ctx context.Context, bundle *ExportBundle, prog *stat
 	}
 	return nil
 }
+
+// ImportSelected runs only the selected import phases.
+func (c *Client) ImportSelected(ctx context.Context, bundle *ExportBundle, prog *state.ImportProgress, subs, playlists, likes bool) error {
+	if subs {
+		if err := c.ImportSubscriptions(ctx, bundle, prog); err != nil {
+			return fmt.Errorf("subscriptions: %w", err)
+		}
+	}
+	if playlists {
+		if err := c.ImportPlaylists(ctx, bundle, prog); err != nil {
+			return fmt.Errorf("playlists: %w", err)
+		}
+	}
+	if likes {
+		if err := c.ImportLikes(ctx, bundle, prog); err != nil {
+			return fmt.Errorf("likes: %w", err)
+		}
+	}
+	return nil
+}

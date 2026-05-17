@@ -89,7 +89,6 @@ func (a *App) loadOAuthConfig() (*oauth2.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("credentials not found: %w", err)
 	}
-	// Use a broad scope here; actual scopes are selected during authenticate().
 	cfg, err := google.ConfigFromJSON(b,
 		"https://www.googleapis.com/auth/youtube.readonly",
 		"https://www.googleapis.com/auth/youtube.force-ssl",
@@ -101,7 +100,6 @@ func (a *App) loadOAuthConfig() (*oauth2.Config, error) {
 }
 
 // AuthenticateSource performs OAuth with read-only scope.
-// Returns a status string and stores the token in memory.
 func (a *App) AuthenticateSource() (string, error) {
 	tok, err := a.authenticate("https://www.googleapis.com/auth/youtube.readonly")
 	if err != nil {
@@ -112,7 +110,6 @@ func (a *App) AuthenticateSource() (string, error) {
 }
 
 // AuthenticateTarget performs OAuth with write scope.
-// Returns a status string and stores the token in memory.
 func (a *App) AuthenticateTarget() (string, error) {
 	tok, err := a.authenticate("https://www.googleapis.com/auth/youtube.force-ssl")
 	if err != nil {
@@ -128,7 +125,6 @@ func (a *App) authenticate(scope string) (*oauth2.Token, error) {
 		return nil, err
 	}
 
-	// Listen on both IPv4 and IPv6 localhost to avoid "connection refused"
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
@@ -136,7 +132,6 @@ func (a *App) authenticate(scope string) (*oauth2.Token, error) {
 	defer listener.Close()
 
 	port := listener.Addr().(*net.TCPAddr).Port
-	// Use 127.0.0.1 explicitly in redirect URL to match listener address
 	redirectURL := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
 	cfg.RedirectURL = redirectURL
 
@@ -147,7 +142,6 @@ func (a *App) authenticate(scope string) (*oauth2.Token, error) {
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
-	// Use a dedicated mux per authentication to avoid global handler conflicts
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
@@ -160,9 +154,7 @@ func (a *App) authenticate(scope string) (*oauth2.Token, error) {
 		codeCh <- code
 	})
 
-	server := &http.Server{
-		Handler: mux,
-	}
+	server := &http.Server{Handler: mux}
 
 	go func() {
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
@@ -184,7 +176,6 @@ func (a *App) authenticate(scope string) (*oauth2.Token, error) {
 }
 
 // ExportData exports subscriptions, playlists, and liked videos from the source account.
-// Requires AuthenticateSource() to have been called beforehand.
 func (a *App) ExportData() (string, error) {
 	if a.sourceToken == nil {
 		return "", fmt.Errorf("source account not authenticated. call AuthenticateSource() first")
@@ -213,6 +204,26 @@ func (a *App) ExportData() (string, error) {
 	return exportPath, nil
 }
 
+// GetExportInfo reads the export file and returns a summary for UI preview.
+func (a *App) GetExportInfo(exportPath string) (youtube.ExportInfo, error) {
+	var info youtube.ExportInfo
+	b, err := os.ReadFile(exportPath)
+	if err != nil {
+		return info, fmt.Errorf("read export file: %w", err)
+	}
+	var bundle youtube.ExportBundle
+	if err := json.Unmarshal(b, &bundle); err != nil {
+		return info, fmt.Errorf("parse export file: %w", err)
+	}
+	info.SubscriptionCount = len(bundle.Subscriptions)
+	info.PlaylistCount = len(bundle.Playlists)
+	for _, pl := range bundle.Playlists {
+		info.VideoCount += len(pl.Items)
+	}
+	info.LikedVideoCount = len(bundle.LikedVideos)
+	return info, nil
+}
+
 func saveJSON(path string, v any) error {
 	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -221,15 +232,21 @@ func saveJSON(path string, v any) error {
 	return os.WriteFile(path, b, 0644)
 }
 
-// ImportData starts importing subscriptions, playlists, and liked videos into the target account in the background.
-// It returns immediately with "import started" and emits events when done.
-func (a *App) ImportData(exportPath string) (string, error) {
+// ImportOptions tells the backend which categories to import.
+type ImportOptions struct {
+	ImportSubscriptions bool `json:"importSubscriptions"`
+	ImportPlaylists     bool `json:"importPlaylists"`
+	ImportLikes         bool `json:"importLikes"`
+}
+
+// ImportData starts importing selected categories into the target account in the background.
+func (a *App) ImportData(exportPath string, opts ImportOptions) (string, error) {
 	if a.targetToken == nil {
 		return "", fmt.Errorf("target account not authenticated. call AuthenticateTarget() first")
 	}
 
 	go func() {
-		result, err := a.doImport(exportPath)
+		result, err := a.doImport(exportPath, opts)
 		if err != nil {
 			runtime.EventsEmit(a.ctx, "import:error", err.Error())
 		} else {
@@ -240,7 +257,7 @@ func (a *App) ImportData(exportPath string) (string, error) {
 	return "import started", nil
 }
 
-func (a *App) doImport(exportPath string) (string, error) {
+func (a *App) doImport(exportPath string, opts ImportOptions) (string, error) {
 	b, err := os.ReadFile(exportPath)
 	if err != nil {
 		return "", fmt.Errorf("read export file: %w", err)
@@ -276,11 +293,10 @@ func (a *App) doImport(exportPath string) (string, error) {
 		return "", fmt.Errorf("load progress: %w", err)
 	}
 
-	if err := client.ImportAll(a.ctx, &bundle, prog); err != nil {
+	if err := client.ImportSelected(a.ctx, &bundle, prog, opts.ImportSubscriptions, opts.ImportPlaylists, opts.ImportLikes); err != nil {
 		_ = state.SaveImportProgress(progressPath, prog)
 		if strings.Contains(err.Error(), "quotaExceeded") {
-			return fmt.Sprintf("quota exhausted at %d/%d subscriptions. progress saved — resume tomorrow",
-				len(prog.SubscriptionsCompleted), len(bundle.Subscriptions)), nil
+			return "quota exhausted. progress saved — resume tomorrow", nil
 		}
 		return "", fmt.Errorf("import failed: %w", err)
 	}
@@ -291,12 +307,4 @@ func (a *App) doImport(exportPath string) (string, error) {
 
 	return fmt.Sprintf("import complete. %d subscriptions, %d playlists done, %d liked videos done",
 		len(prog.SubscriptionsCompleted), len(prog.PlaylistsCompleted), len(prog.LikedVideosCompleted)), nil
-}
-
-func loadJSON(path string, v any) error {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(b, v)
 }

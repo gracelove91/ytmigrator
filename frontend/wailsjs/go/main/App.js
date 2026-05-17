@@ -14,12 +14,16 @@ export function ExportData() {
   return window['go']['main']['App']['ExportData']();
 }
 
+export function GetExportInfo(arg1) {
+  return window['go']['main']['App']['GetExportInfo'](arg1);
+}
+
 export function GetStoredCredentialsStatus() {
   return window['go']['main']['App']['GetStoredCredentialsStatus']();
 }
 
-export function ImportData(arg1) {
-  return window['go']['main']['App']['ImportData'](arg1);
+export function ImportData(arg1, arg2) {
+  return window['go']['main']['App']['ImportData'](arg1, arg2);
 }
 
 export function SelectCredentialsFile() {

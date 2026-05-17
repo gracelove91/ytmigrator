@@ -40,3 +40,11 @@ type ExportBundle struct {
 	Playlists     []Playlist     `json:"playlists"`
 	LikedVideos   []LikedVideo   `json:"likedVideos"`
 }
+
+// ExportInfo provides a summary of exported data for UI preview.
+type ExportInfo struct {
+	SubscriptionCount int `json:"subscriptionCount"`
+	PlaylistCount     int `json:"playlistCount"`
+	VideoCount        int `json:"videoCount"` // total videos across all playlists
+	LikedVideoCount   int `json:"likedVideoCount"`
+}
