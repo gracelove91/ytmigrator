@@ -1,4 +1,5 @@
 import {useState, useEffect} from 'react';
+import {EventsOn, EventsOff} from "../wailsjs/runtime/runtime";
 import {
     GetStoredCredentialsStatus,
     SelectCredentialsFile,
@@ -14,6 +15,7 @@ function App() {
     const [targetAuthed, setTargetAuthed] = useState(false);
     const [exportPath, setExportPath] = useState<string | null>(null);
     const [status, setStatus] = useState("initializing...");
+    const [importing, setImporting] = useState(false);
 
     useEffect(() => {
         GetStoredCredentialsStatus().then(stored => {
@@ -21,6 +23,24 @@ function App() {
             setStatus(stored ? "Ready" : "GCP credentials required");
         }).catch(() => setStatus("error"));
     }, []);
+
+    useEffect(() => {
+        if (!importing) return;
+        const doneUnsub = EventsOn("import:done", (msg: string) => {
+            setImporting(false);
+            setStatus("Import done: " + msg);
+        });
+        const errUnsub = EventsOn("import:error", (err: string) => {
+            setImporting(false);
+            setStatus("Import error: " + err);
+        });
+        return () => {
+            EventsOff("import:done");
+            EventsOff("import:error");
+            doneUnsub();
+            errUnsub();
+        };
+    }, [importing]);
 
     async function pickFile() {
         setStatus("selecting file...");
@@ -73,11 +93,13 @@ function App() {
             setStatus("no export data. run Export first.");
             return;
         }
+        setImporting(true);
         setStatus("importing to target account... this may take a long time");
         try {
-            const result = await ImportData(exportPath);
-            setStatus("Import done: " + result);
+            const msg = await ImportData(exportPath);
+            setStatus(msg); // "import started"
         } catch (e: any) {
+            setImporting(false);
             setStatus("import error: " + e);
         }
     }
@@ -85,14 +107,16 @@ function App() {
     return (
         <div style={{padding: "40px", fontFamily: "system-ui, sans-serif"}}>
             <h1>ytmigrator</h1>
-            <p style={{color: "#666"}}>YouTube account data migration tool</p>
+            <p style={{color: "#aab"}}>YouTube account data migration tool</p>
 
             <div style={{
                 margin: "20px 0", padding: "15px",
-                background: "#f5f5f5", borderRadius: "8px",
-                fontFamily: "monospace", fontSize: "14px"
+                background: "#1e2a3a", borderRadius: "8px",
+                fontFamily: "monospace", fontSize: "14px",
+                color: "#d0d8e0", minHeight: "20px"
             }}>
                 {status}
+                {importing && <span className="spinner" style={{marginLeft: "10px"}}>...</span>}
             </div>
 
             {!hasCredentials && (
@@ -120,11 +144,18 @@ function App() {
                 </div>
             )}
 
-            {targetAuthed && exportPath && (
+            {targetAuthed && exportPath && !importing && (
                 <div>
                     <button onClick={doImport} style={btnStyle("#7b1fa2")}>
                         Import Data to Target
                     </button>
+                </div>
+            )}
+
+            {importing && (
+                <div style={{marginTop: "10px", color: "#aab"}}>
+                    Import is running in the background...<br/>
+                    You can close this window; progress is saved automatically.
                 </div>
             )}
         </div>

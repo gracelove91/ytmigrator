@@ -220,14 +220,26 @@ func saveJSON(path string, v any) error {
 	return os.WriteFile(path, b, 0644)
 }
 
-// ImportData imports subscriptions, playlists, and liked videos into the target account.
-// Requires AuthenticateTarget() to have been called beforehand.
+// ImportData starts importing subscriptions, playlists, and liked videos into the target account in the background.
+// It returns immediately with "import started" and emits events when done.
 func (a *App) ImportData(exportPath string) (string, error) {
 	if a.targetToken == nil {
 		return "", fmt.Errorf("target account not authenticated. call AuthenticateTarget() first")
 	}
 
-	// Load export bundle
+	go func() {
+		result, err := a.doImport(exportPath)
+		if err != nil {
+			runtime.EventsEmit(a.ctx, "import:error", err.Error())
+		} else {
+			runtime.EventsEmit(a.ctx, "import:done", result)
+		}
+	}()
+
+	return "import started", nil
+}
+
+func (a *App) doImport(exportPath string) (string, error) {
 	b, err := os.ReadFile(exportPath)
 	if err != nil {
 		return "", fmt.Errorf("read export file: %w", err)
@@ -248,14 +260,12 @@ func (a *App) ImportData(exportPath string) (string, error) {
 		return "", fmt.Errorf("create youtube client: %w", err)
 	}
 
-	// Load or create progress
 	progressPath := filepath.Join(os.TempDir(), "ytmigrator_import_progress.json")
 	prog, err := state.LoadImportProgress(progressPath)
 	if err != nil {
 		return "", fmt.Errorf("load progress: %w", err)
 	}
 
-	// Run import
 	if err := client.ImportAll(a.ctx, &bundle, prog); err != nil {
 		_ = state.SaveImportProgress(progressPath, prog)
 		return "", fmt.Errorf("import failed: %w", err)

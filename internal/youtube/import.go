@@ -3,6 +3,7 @@ package youtube
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"google.golang.org/api/googleapi"
@@ -12,21 +13,24 @@ import (
 
 // ImportSubscriptions copies subscriptions from the bundle to the target account.
 func (c *Client) ImportSubscriptions(ctx context.Context, bundle *ExportBundle, prog *state.ImportProgress) error {
-	for _, sub := range bundle.Subscriptions {
+	log.Printf("Importing %d subscriptions...", len(bundle.Subscriptions))
+	for i, sub := range bundle.Subscriptions {
 		err := c.importSubscription(ctx, sub)
 		if err != nil {
+			log.Printf("  subscription %d/%d FAILED: %s - %v", i+1, len(bundle.Subscriptions), sub.Title, err)
 			prog.MarkSubscriptionDone(sub.ChannelId, false)
 		} else {
+			log.Printf("  subscription %d/%d OK: %s", i+1, len(bundle.Subscriptions), sub.Title)
 			prog.MarkSubscriptionDone(sub.ChannelId, true)
 		}
-		prog.AddQuota(51) // list(1) + insert(50); we charged upfront
-		// Rate limiting: sequential with 500ms delay to avoid 429
+		prog.AddQuota(51)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(500 * time.Millisecond):
+		case <-time.After(100 * time.Millisecond):
 		}
 	}
+	log.Println("Subscriptions import done")
 	return nil
 }
 
