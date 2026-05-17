@@ -1,123 +1,118 @@
 import {useState, useEffect} from 'react';
-import {GetStoredCredentialsStatus, SelectCredentialsFile, AuthenticateSource, AuthenticateTarget} from "../wailsjs/go/main/App";
+import {
+    GetStoredCredentialsStatus,
+    SelectCredentialsFile,
+    AuthenticateSource,
+    AuthenticateTarget,
+    ExportData
+} from "../wailsjs/go/main/App";
 
 function App() {
-    const [hasCredentials, setHasCredentials] = useState<boolean>(false);
-    const [status, setStatus] = useState<string>("initializing...");
+    const [hasCredentials, setHasCredentials] = useState(false);
+    const [sourceAuthed, setSourceAuthed] = useState(false);
+    const [targetAuthed, setTargetAuthed] = useState(false);
+    const [status, setStatus] = useState("initializing...");
 
-    // 앱 시작 시 저장된 인증 정보 확인
     useEffect(() => {
-        checkCredentials();
+        GetStoredCredentialsStatus().then(stored => {
+            setHasCredentials(stored);
+            setStatus(stored ? "Ready" : "GCP credentials required");
+        }).catch(() => setStatus("error"));
     }, []);
 
-    async function checkCredentials() {
-        try {
-            const stored = await GetStoredCredentialsStatus();
-            setHasCredentials(stored);
-            setStatus(stored ? "GCP credentials loaded. Ready to authenticate." : "GCP credentials required.");
-        } catch (e) {
-            setStatus("error checking credentials");
-        }
-    }
-
-    async function pickCredentialsFile() {
+    async function pickFile() {
         setStatus("selecting file...");
         try {
             const result = await SelectCredentialsFile();
-            setHasCredentials(true);
-            setStatus(result === "saved" ? "Credentials saved successfully!" : "unexpected result");
+            if (result === "saved") {
+                setHasCredentials(true);
+                setStatus("Credentials saved. Ready.");
+            }
         } catch (e: any) {
             setStatus("error: " + e);
         }
     }
 
     async function loginSource() {
-        setStatus("authenticating source account... opening browser");
+        setStatus("authenticating source...");
         try {
-            const token = await AuthenticateSource();
-            setStatus("Source token acquired: " + token.substring(0, 20) + "...");
+            const result = await AuthenticateSource();
+            setSourceAuthed(result.includes("authenticated"));
+            setStatus("Source account: " + result);
         } catch (e: any) {
-            setStatus("source auth error: " + e);
+            setStatus("source error: " + e);
         }
     }
 
     async function loginTarget() {
-        setStatus("authenticating target account... opening browser");
+        setStatus("authenticating target...");
         try {
-            const token = await AuthenticateTarget();
-            setStatus("Target token acquired: " + token.substring(0, 20) + "...");
+            const result = await AuthenticateTarget();
+            setTargetAuthed(result.includes("authenticated"));
+            setStatus("Target account: " + result);
         } catch (e: any) {
-            setStatus("target auth error: " + e);
+            setStatus("target error: " + e);
+        }
+    }
+
+    async function doExport() {
+        setStatus("exporting... this may take a while");
+        try {
+            const path = await ExportData();
+            setStatus("Export saved to: " + path);
+        } catch (e: any) {
+            setStatus("export error: " + e);
         }
     }
 
     return (
-        <div id="App" style={{padding: "40px", fontFamily: "sans-serif"}}>
+        <div style={{padding: "40px", fontFamily: "system-ui, sans-serif"}}>
             <h1>ytmigrator</h1>
-            <p style={{color: "#666", marginBottom: "30px"}}>
-                YouTube account data migration tool
-            </p>
+            <p style={{color: "#666"}}>YouTube account data migration tool</p>
 
-            <div style={{marginBottom: "20px", padding: "15px", background: "#f5f5f5", borderRadius: "8px"}}>
-                <strong>Status:</strong> {status}
+            <div style={{
+                margin: "20px 0", padding: "15px",
+                background: "#f5f5f5", borderRadius: "8px",
+                fontFamily: "monospace", fontSize: "14px"
+            }}>
+                {status}
             </div>
 
             {!hasCredentials && (
-                <div style={{marginBottom: "20px"}}>
-                    <p style={{color: "#c00"}}>
-                        First-time setup required. Download client_secret.json from Google Cloud Console.
-                    </p>
-                    <button
-                        onClick={pickCredentialsFile}
-                        style={{
-                            padding: "12px 24px",
-                            fontSize: "16px",
-                            background: "#1a73e8",
-                            color: "white",
-                            border: "none",
-                            borderRadius: "4px",
-                            cursor: "pointer"
-                        }}
-                    >
-                        Select client_secret.json
+                <button onClick={pickFile} style={btnStyle("#1a73e8")}>
+                    Select client_secret.json
+                </button>
+            )}
+
+            {hasCredentials && (
+                <div style={{display: "flex", gap: "10px", flexWrap: "wrap"}}>
+                    <button onClick={loginSource} style={btnStyle(sourceAuthed ? "#34a853" : "#6aa84f")}>
+                        {sourceAuthed ? "Re-auth Source" : "Login Source (Read)"}
+                    </button>
+                    <button onClick={loginTarget} style={btnStyle(targetAuthed ? "#ea4335" : "#d9534f")}>
+                        {targetAuthed ? "Re-auth Target" : "Login Target (Write)"}
                     </button>
                 </div>
             )}
 
-            {hasCredentials && (
-                <div style={{display: "flex", gap: "15px"}}>
-                    <button
-                        onClick={loginSource}
-                        style={{
-                            padding: "12px 24px",
-                            fontSize: "16px",
-                            background: "#34a853",
-                            color: "white",
-                            border: "none",
-                            borderRadius: "4px",
-                            cursor: "pointer"
-                        }}
-                    >
-                        Login Source Account (Read)
-                    </button>
-                    <button
-                        onClick={loginTarget}
-                        style={{
-                            padding: "12px 24px",
-                            fontSize: "16px",
-                            background: "#ea4335",
-                            color: "white",
-                            border: "none",
-                            borderRadius: "4px",
-                            cursor: "pointer"
-                        }}
-                    >
-                        Login Target Account (Write)
+            {sourceAuthed && (
+                <div style={{marginTop: "20px"}}>
+                    <button onClick={doExport} style={btnStyle("#f4b400")}>
+                        Export Data (Subscriptions + Playlists + Liked)
                     </button>
                 </div>
             )}
         </div>
-    )
+    );
+}
+
+function btnStyle(bg: string) {
+    return {
+        padding: "12px 24px", fontSize: "15px",
+        background: bg, color: "white",
+        border: "none", borderRadius: "4px",
+        cursor: "pointer", fontWeight: "bold"
+    } as React.CSSProperties;
 }
 
 export default App;

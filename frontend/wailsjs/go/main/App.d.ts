@@ -5,6 +5,8 @@ export function AuthenticateSource():Promise<string>;
 
 export function AuthenticateTarget():Promise<string>;
 
+export function ExportData():Promise<string>;
+
 export function GetStoredCredentialsStatus():Promise<boolean>;
 
 export function SelectCredentialsFile():Promise<string>;

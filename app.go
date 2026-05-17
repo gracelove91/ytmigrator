@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -9,13 +10,16 @@ import (
 	"path/filepath"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"ytmigrator/internal/youtube"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
 
-// App struct
+// App struct holds application state including in-memory OAuth tokens.
 type App struct {
-	ctx context.Context
+	ctx         context.Context
+	sourceToken *oauth2.Token // memory-only, never persisted
+	targetToken *oauth2.Token // memory-only, never persisted
 }
 
 func NewApp() *App {
@@ -26,26 +30,24 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 }
 
-// configPath returns the path to the stored credentials file in the OS config directory.
+// --- Credential storage helpers ---
+
 func (a *App) configPath() string {
 	cfgDir, _ := os.UserConfigDir()
 	return filepath.Join(cfgDir, "ytmigrator", "credentials.json")
 }
 
-// credentialsExist checks if saved credentials are available.
 func (a *App) credentialsExist() bool {
 	_, err := os.Stat(a.configPath())
 	return err == nil
 }
 
-// GetStoredCredentialsStatus returns whether credentials have been saved.
-// Called by the frontend on app startup to show the correct UI state.
+// GetStoredCredentialsStatus returns true if GCP credentials have been saved.
 func (a *App) GetStoredCredentialsStatus() bool {
 	return a.credentialsExist()
 }
 
-// SelectCredentialsFile opens a file dialog, validates the JSON,
-// and saves the full client_secret.json content to the OS config directory.
+// SelectCredentialsFile opens a dialog, validates, and saves client_secret.json.
 func (a *App) SelectCredentialsFile() (string, error) {
 	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "Select GCP client_secret.json",
@@ -65,57 +67,76 @@ func (a *App) SelectCredentialsFile() (string, error) {
 		return "", fmt.Errorf("read file: %w", err)
 	}
 
-	// Validate by parsing with google package
-	_, err = google.ConfigFromJSON(b, "https://www.googleapis.com/auth/youtube.readonly")
-	if err != nil {
+	if _, err := google.ConfigFromJSON(b, "https://www.googleapis.com/auth/youtube.readonly"); err != nil {
 		return "", fmt.Errorf("invalid client_secret.json: %w", err)
 	}
 
-	// Save to config directory
 	configPath := a.configPath()
-	dir := filepath.Dir(configPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
 		return "", fmt.Errorf("create config dir: %w", err)
 	}
 	if err := os.WriteFile(configPath, b, 0600); err != nil {
 		return "", fmt.Errorf("save credentials: %w", err)
 	}
-
 	return "saved", nil
 }
 
-// AuthenticateSource authenticates with read-only scope using stored credentials.
-func (a *App) AuthenticateSource() (string, error) {
-	return a.authenticate("https://www.googleapis.com/auth/youtube.readonly")
-}
-
-// AuthenticateTarget authenticates with write scope using stored credentials.
-func (a *App) AuthenticateTarget() (string, error) {
-	return a.authenticate("https://www.googleapis.com/auth/youtube.force-ssl")
-}
-
-func (a *App) authenticate(scope string) (string, error) {
+// loadOAuthConfig reads stored credentials and builds an oauth2.Config.
+func (a *App) loadOAuthConfig() (*oauth2.Config, error) {
 	b, err := os.ReadFile(a.configPath())
 	if err != nil {
-		return "", fmt.Errorf("stored credentials not found: %w", err)
+		return nil, fmt.Errorf("credentials not found: %w", err)
 	}
-
-	config, err := google.ConfigFromJSON(b, scope)
+	// Use a broad scope here; actual scopes are selected during authenticate().
+	cfg, err := google.ConfigFromJSON(b,
+		"https://www.googleapis.com/auth/youtube.readonly",
+		"https://www.googleapis.com/auth/youtube.force-ssl",
+	)
 	if err != nil {
-		return "", fmt.Errorf("parse credentials: %w", err)
+		return nil, fmt.Errorf("parse credentials: %w", err)
+	}
+	return cfg, nil
+}
+
+// AuthenticateSource performs OAuth with read-only scope.
+// Returns a status string and stores the token in memory.
+func (a *App) AuthenticateSource() (string, error) {
+	tok, err := a.authenticate("https://www.googleapis.com/auth/youtube.readonly")
+	if err != nil {
+		return "", err
+	}
+	a.sourceToken = tok
+	return "source authenticated", nil
+}
+
+// AuthenticateTarget performs OAuth with write scope.
+// Returns a status string and stores the token in memory.
+func (a *App) AuthenticateTarget() (string, error) {
+	tok, err := a.authenticate("https://www.googleapis.com/auth/youtube.force-ssl")
+	if err != nil {
+		return "", err
+	}
+	a.targetToken = tok
+	return "target authenticated", nil
+}
+
+func (a *App) authenticate(scope string) (*oauth2.Token, error) {
+	cfg, err := a.loadOAuthConfig()
+	if err != nil {
+		return nil, err
 	}
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer listener.Close()
 
 	port := listener.Addr().(*net.TCPAddr).Port
 	redirectURL := fmt.Sprintf("http://localhost:%d/callback", port)
-	config.RedirectURL = redirectURL
+	cfg.RedirectURL = redirectURL
 
-	authURL := config.AuthCodeURL("state", oauth2.AccessTypeOffline)
+	authURL := cfg.AuthCodeURL("state", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 
 	runtime.BrowserOpenURL(a.ctx, authURL)
 
@@ -143,12 +164,50 @@ func (a *App) authenticate(scope string) (string, error) {
 
 	select {
 	case code := <-codeCh:
-		tok, err := config.Exchange(a.ctx, code)
+		tok, err := cfg.Exchange(a.ctx, code)
 		if err != nil {
-			return "", fmt.Errorf("exchange token: %w", err)
+			return nil, fmt.Errorf("exchange token: %w", err)
 		}
-		return tok.AccessToken, nil
+		return tok, nil
 	case err := <-errCh:
+		return nil, err
+	}
+}
+
+// ExportData exports subscriptions, playlists, and liked videos from the source account.
+// Requires AuthenticateSource() to have been called beforehand.
+func (a *App) ExportData() (string, error) {
+	if a.sourceToken == nil {
+		return "", fmt.Errorf("source account not authenticated. call AuthenticateSource() first")
+	}
+
+	cfg, err := a.loadOAuthConfig()
+	if err != nil {
 		return "", err
 	}
+	httpClient := cfg.Client(a.ctx, a.sourceToken)
+
+	client, err := youtube.NewClient(a.ctx, httpClient)
+	if err != nil {
+		return "", fmt.Errorf("create youtube client: %w", err)
+	}
+
+	bundle, err := client.ExportAll(a.ctx)
+	if err != nil {
+		return "", fmt.Errorf("export failed: %w", err)
+	}
+
+	exportPath := filepath.Join(os.TempDir(), "ytmigrator_export.json")
+	if err := saveJSON(exportPath, bundle); err != nil {
+		return "", fmt.Errorf("save export: %w", err)
+	}
+	return exportPath, nil
+}
+
+func saveJSON(path string, v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0644)
 }

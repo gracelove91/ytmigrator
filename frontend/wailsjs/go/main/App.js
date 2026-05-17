@@ -10,6 +10,10 @@ export function AuthenticateTarget() {
   return window['go']['main']['App']['AuthenticateTarget']();
 }
 
+export function ExportData() {
+  return window['go']['main']['App']['ExportData']();
+}
+
 export function GetStoredCredentialsStatus() {
   return window['go']['main']['App']['GetStoredCredentialsStatus']();
 }
