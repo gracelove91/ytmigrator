@@ -4,13 +4,15 @@ import {
     SelectCredentialsFile,
     AuthenticateSource,
     AuthenticateTarget,
-    ExportData
+    ExportData,
+    ImportData
 } from "../wailsjs/go/main/App";
 
 function App() {
     const [hasCredentials, setHasCredentials] = useState(false);
     const [sourceAuthed, setSourceAuthed] = useState(false);
     const [targetAuthed, setTargetAuthed] = useState(false);
+    const [exportPath, setExportPath] = useState<string | null>(null);
     const [status, setStatus] = useState("initializing...");
 
     useEffect(() => {
@@ -38,7 +40,7 @@ function App() {
         try {
             const result = await AuthenticateSource();
             setSourceAuthed(result.includes("authenticated"));
-            setStatus("Source account: " + result);
+            setStatus("Source: " + result);
         } catch (e: any) {
             setStatus("source error: " + e);
         }
@@ -49,7 +51,7 @@ function App() {
         try {
             const result = await AuthenticateTarget();
             setTargetAuthed(result.includes("authenticated"));
-            setStatus("Target account: " + result);
+            setStatus("Target: " + result);
         } catch (e: any) {
             setStatus("target error: " + e);
         }
@@ -59,9 +61,24 @@ function App() {
         setStatus("exporting... this may take a while");
         try {
             const path = await ExportData();
+            setExportPath(path);
             setStatus("Export saved to: " + path);
         } catch (e: any) {
             setStatus("export error: " + e);
+        }
+    }
+
+    async function doImport() {
+        if (!exportPath) {
+            setStatus("no export data. run Export first.");
+            return;
+        }
+        setStatus("importing to target account... this may take a long time");
+        try {
+            const result = await ImportData(exportPath);
+            setStatus("Import done: " + result);
+        } catch (e: any) {
+            setStatus("import error: " + e);
         }
     }
 
@@ -85,20 +102,28 @@ function App() {
             )}
 
             {hasCredentials && (
-                <div style={{display: "flex", gap: "10px", flexWrap: "wrap"}}>
-                    <button onClick={loginSource} style={btnStyle(sourceAuthed ? "#34a853" : "#6aa84f")}>
+                <div style={{display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "20px"}}>
+                    <button onClick={loginSource} style={btnStyle(sourceAuthed ? "#2e7d32" : "#6aa84f")}>
                         {sourceAuthed ? "Re-auth Source" : "Login Source (Read)"}
                     </button>
-                    <button onClick={loginTarget} style={btnStyle(targetAuthed ? "#ea4335" : "#d9534f")}>
+                    <button onClick={loginTarget} style={btnStyle(targetAuthed ? "#c62828" : "#d9534f")}>
                         {targetAuthed ? "Re-auth Target" : "Login Target (Write)"}
                     </button>
                 </div>
             )}
 
             {sourceAuthed && (
-                <div style={{marginTop: "20px"}}>
+                <div style={{marginBottom: "10px"}}>
                     <button onClick={doExport} style={btnStyle("#f4b400")}>
-                        Export Data (Subscriptions + Playlists + Liked)
+                        Export Data
+                    </button>
+                </div>
+            )}
+
+            {targetAuthed && exportPath && (
+                <div>
+                    <button onClick={doImport} style={btnStyle("#7b1fa2")}>
+                        Import Data to Target
                     </button>
                 </div>
             )}

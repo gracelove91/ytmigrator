@@ -9,4 +9,6 @@ export function ExportData():Promise<string>;
 
 export function GetStoredCredentialsStatus():Promise<boolean>;
 
+export function ImportData(arg1:string):Promise<string>;
+
 export function SelectCredentialsFile():Promise<string>;

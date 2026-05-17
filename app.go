@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"ytmigrator/internal/state"
 	"ytmigrator/internal/youtube"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -210,4 +211,61 @@ func saveJSON(path string, v any) error {
 		return err
 	}
 	return os.WriteFile(path, b, 0644)
+}
+
+// ImportData imports subscriptions, playlists, and liked videos into the target account.
+// Requires AuthenticateTarget() to have been called beforehand.
+func (a *App) ImportData(exportPath string) (string, error) {
+	if a.targetToken == nil {
+		return "", fmt.Errorf("target account not authenticated. call AuthenticateTarget() first")
+	}
+
+	// Load export bundle
+	b, err := os.ReadFile(exportPath)
+	if err != nil {
+		return "", fmt.Errorf("read export file: %w", err)
+	}
+	var bundle youtube.ExportBundle
+	if err := json.Unmarshal(b, &bundle); err != nil {
+		return "", fmt.Errorf("parse export file: %w", err)
+	}
+
+	cfg, err := a.loadOAuthConfig()
+	if err != nil {
+		return "", err
+	}
+	httpClient := cfg.Client(a.ctx, a.targetToken)
+
+	client, err := youtube.NewClient(a.ctx, httpClient)
+	if err != nil {
+		return "", fmt.Errorf("create youtube client: %w", err)
+	}
+
+	// Load or create progress
+	progressPath := filepath.Join(os.TempDir(), "ytmigrator_import_progress.json")
+	prog, err := state.LoadImportProgress(progressPath)
+	if err != nil {
+		return "", fmt.Errorf("load progress: %w", err)
+	}
+
+	// Run import
+	if err := client.ImportAll(a.ctx, &bundle, prog); err != nil {
+		_ = state.SaveImportProgress(progressPath, prog)
+		return "", fmt.Errorf("import failed: %w", err)
+	}
+
+	if err := state.SaveImportProgress(progressPath, prog); err != nil {
+		return "", fmt.Errorf("save progress: %w", err)
+	}
+
+	return fmt.Sprintf("import complete. %d subscriptions, %d playlists done, %d liked videos done",
+		len(prog.SubscriptionsCompleted), len(prog.PlaylistsCompleted), len(prog.LikedVideosCompleted)), nil
+}
+
+func loadJSON(path string, v any) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
 }
