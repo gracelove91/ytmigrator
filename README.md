@@ -9,6 +9,7 @@ YouTube 계정 마이그레이션 데스크톱 앱. 구독 채널, 재생목록,
 - **구독 채널 마이그레이션** — 알림 수준(activity type) 보존, 이미 구독 중이면 skip
 - **재생목록 마이그레이션** — 영상 순서 보존, Watch Later 포함
 - **좋아요 영상 마이그레이션** — 대상 계정에 like 재적용
+- **Export 미리보기 + 선택적 Import** — Export 후 "구독 N개, 재생목록 N개, 좋아요 N개"를 확인하고 원하는 항목만 Import (체크박스 선택)
 - **작업 중단 시 Resume** — 쿼터 한도(10,000 unit/일) 대응. 진행 상태를 디스크에 저장하여 다음 날 이어서 시작
 - **비동기 Import** — 백그라운드 goroutine으로 실행, UI가 얼어버리지 않음
 - **실시간 진행 상황** — "구독 채널명 (47/247)" 형태로 상태 표시
@@ -46,12 +47,21 @@ YouTube 계정 마이그레이션 데스크톱 앱. 구독 채널, 재생목록,
 │ Export Data 클릭  │  ← /tmp/ytmigrator_export.json
 └──────┬───────────┘
        ↓
+┌─────────────────────────────────────────────┐
+│ Export 미리보기 패널                         │
+│  ✅ 구독 247개 / 재생목록 12개 / 좋아요 89개   │  ← 수량 확인
+│                                              │
+│  ☑️ 구독 [체크]                              │
+│  ☑️ 재생목록 [체크]                          │  ← Import 항목 선택
+│  ☐ 좋아요 [체크 해제]                        │
+└──────┬──────────────────────────────────────┘
+       ↓
 ┌──────────────────┐
 │ 대상 계정 로그인  │  ← 브라우저 팝업, 쓰기 권한
 └──────┬───────────┘
        ↓
 ┌──────────────────────────┐
-│ Import Data 클릭          │  ← 백그라운드에서 구독/재생목록/좋아요 복사
+│ Import Selected 클릭      │  ← 선택한 항목만 백그라운드 복사
 │ "구독 채널명 (47/247)"    │  ← 실시간 진행 표시
 └──────┬───────────────────┘
        ↓
@@ -152,6 +162,7 @@ A desktop app for migrating YouTube account data. Move subscriptions, playlists,
 - **Subscription Migration** — Preserves notification level (activity type), skips already-subscribed channels
 - **Playlist Migration** — Preserves video order, includes Watch Later
 - **Liked Videos Migration** — Re-applies "like" ratings to the target account
+- **Export Preview + Selective Import** — After export, review counts (subscriptions, playlists, liked videos) and choose which ones to import via checkboxes
 - **Resume on Interruption** — Handles the daily quota limit (10,000 units/day). Saves progress to disk and resumes the next day.
 - **Async Import** — Runs in a background goroutine; UI never freezes
 - **Real-time Progress** — Shows current progress like "Subscriptions: Channel Name (47/247)"
@@ -189,12 +200,21 @@ A desktop app for migrating YouTube account data. Move subscriptions, playlists,
 │ Click Export Data    │  ← Creates /tmp/ytmigrator_export.json
 └──────┬───────────────┘
        ↓
+┌───────────────────────────────────────┐
+│ Export Preview Panel                  │
+│  ✅ Subscriptions 247 / 12 playlists / 89 likes │ ← Review counts
+│                                       │
+│  ☑️ Subscriptions [checked]           │
+│  ☑️ Playlists [checked]               │  ← Select what to import
+│  ☐ Liked Videos [unchecked]           │
+└──────┬────────────────────────────────┘
+       ↓
 ┌──────────────────────┐
 │ Login Target Account │  ← Browser popup, write scope
 └──────┬───────────────┘
        ↓
 ┌──────────────────────────────────┐
-│ Click Import Data                │  ← Background copy starts
+│ Click Import Selected            │  ← Background copy of selected items
 │ "Subscriptions: Name (47/247)"   │  ← Real-time progress
 └──────┬───────────────────────────┘
        ↓
